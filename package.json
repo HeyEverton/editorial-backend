@@ -17,7 +17,7 @@
         "auth",
         "express",
         "jwt",
-        "sqlite"
+        "postgresql"
     ],
     "author": "",
     "license": "ISC",
