@@ -30,7 +30,10 @@
     },
     "devDependencies": {
         "@prisma/client": "^6.19.2",
+        "@types/bcrypt": "^6.0.0",
+        "@types/cors": "^2.8.19",
         "@types/express": "^5.0.6",
+        "@types/jsonwebtoken": "^9.0.10",
         "@types/node": "^25.5.0",
         "prisma": "^6.19.2",
         "ts-node": "^10.9.2",
