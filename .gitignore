@@ -1,0 +1,40 @@
+# .gitignore para o projeto
+
+# Node modules
+node_modules/
+server/node_modules/
+
+# Banco de dados SQLite
+server/database.sqlite
+*.sqlite
+*.db
+
+# Logs
+*.log
+npm-debug.log*
+server/*.log
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Build
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+temp/
+
+/src/generated/prisma
