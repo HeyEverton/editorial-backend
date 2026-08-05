@@ -6,15 +6,13 @@ dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
-// Estendendo o Request do Express para aceitar o usuário
 export interface AuthRequest extends Request {
   user?: any;
 }
 
 export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
-    // Obter token do header Authorization
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
         return res.status(401).json({
@@ -24,9 +22,8 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
     }
 
     try {
-        // Verificar e decodificar token
         const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = decoded; // Anexar dados do usuário à requisição
+        req.user = decoded;
         next();
     } catch (error: any) {
         if (error.name === 'TokenExpiredError') {

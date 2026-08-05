@@ -17,7 +17,7 @@
         "auth",
         "express",
         "jwt",
-        "postgresql"
+        "mysql"
     ],
     "author": "",
     "license": "ISC",
