@@ -8,34 +8,93 @@ datasource db {
 }
 
 model User {
-  id                Int                @id @default(autoincrement())
-  name              String?
-  email             String             @unique
-  passwordHash      String
-  tokens            Int                @default(40)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  tokenTransactions TokenTransaction[]
-  projects          Project[]
+  id                   String             @id
+  name                 String?
+  email                String             @unique
+  passwordHash         String
+  tokens               Int                @default(40)
+  generationsThisMonth Int                @default(0)
+  lastGenerationReset  DateTime           @default(now())
+  billingCycle         String?            @default("mensal")
+  roleId               String?
+  planId               String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  role                 Role?              @relation(fields: [roleId], references: [id])
+  plan                 Plan?              @relation(fields: [planId], references: [id])
+  tokenTransactions    TokenTransaction[]
+  projects             Project[]
+}
+
+model Plan {
+  id                     String   @id
+  name                   String   @unique
+  slug                   String   @unique
+  sub                    String   @default("")
+  audience               String   @default("")
+  cta                    String   @default("")
+  priceMensal            Float    @default(0)
+  priceAnual             Float    @default(0)
+  items                  Json
+  asaasPlanId            String?
+  maxGenerationsPerMonth Int      @default(10)
+  maxProjects            Int      @default(10)
+  hasA3Export            Boolean  @default(true)
+  hasWhiteLabel          Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  users                  User[]
+}
+
+model Role {
+  id              String           @id
+  name            String           @unique
+  description     String?
+  isSystem        Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  rolePermissions RolePermission[]
+  users           User[]
+}
+
+model Permission {
+  id               String           @id
+  name             String
+  subject          String           @unique
+  availableActions Json
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  rolePermissions  RolePermission[]
+}
+
+model RolePermission {
+  id           String     @id
+  roleId       String
+  permissionId String
+  actions      Json
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
 }
 
 model TokenTransaction {
-  id           Int      @id @default(autoincrement())
-  userId       Int
-  type         String // "use" | "purchase" | "bonus"
+  id           String   @id
+  userId       String
+  type         String
   amount       Int
   balanceAfter Int
   createdAt    DateTime @default(now())
-  user         User     @relation(fields: [userId], references: [id])
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Project {
-  id               Int      @id @default(autoincrement())
-  userId           Int
+  id               String   @id
+  userId           String
   name             String
   shortDescription String   @default("")
   content          Json
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  user             User     @relation(fields: [userId], references: [id])
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

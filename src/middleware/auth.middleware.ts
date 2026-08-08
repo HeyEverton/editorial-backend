@@ -22,7 +22,13 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
     }
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        if (!decoded || typeof decoded.id !== 'string') {
+            return res.status(401).json({
+                error: 'Sessão inválida',
+                message: 'Por favor, faça login novamente para atualizar sua credencial.'
+            });
+        }
         req.user = decoded;
         next();
     } catch (error: any) {

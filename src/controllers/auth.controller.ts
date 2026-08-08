@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
+import { generateUlid } from '../lib/ulid.js';
 import dotenv from 'dotenv';
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware.js';
@@ -9,6 +10,53 @@ dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 const SALT_ROUNDS = 10;
+
+async function getUserPayload(userId: string) {
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+            role: {
+                include: {
+                    rolePermissions: {
+                        include: {
+                            permission: true
+                        }
+                    }
+                }
+            },
+            plan: true
+        }
+    });
+
+    if (!user) return null;
+
+    const permissions = user.role?.rolePermissions.map(rp => ({
+        subject: rp.permission.subject,
+        actions: rp.actions
+    })) || [];
+
+    return {
+        id: user.id,
+        email: user.email,
+        nome: user.name,
+        tokens: user.tokens,
+        role: user.role ? user.role.name : 'User',
+        roleId: user.roleId,
+        isSystemAdmin: user.role?.name === 'Admin System',
+        permissions,
+        plan: user.plan ? {
+            id: user.plan.id,
+            name: user.plan.name,
+            slug: user.plan.slug,
+            maxGenerationsPerMonth: user.plan.maxGenerationsPerMonth,
+            maxProjects: user.plan.maxProjects,
+            hasA3Export: user.plan.hasA3Export,
+            hasWhiteLabel: user.plan.hasWhiteLabel
+        } : null,
+        billingCycle: user.billingCycle,
+        generationsThisMonth: user.generationsThisMonth
+    };
+}
 
 export async function register(req: Request, res: Response) {
     try {
@@ -39,13 +87,22 @@ export async function register(req: Request, res: Response) {
             });
         }
 
+        // Buscar cargo "User" e plano "essencial" padrão
+        const defaultRole = await prisma.role.findUnique({ where: { name: 'User' } });
+        const defaultPlan = await prisma.plan.findUnique({ where: { slug: 'essencial' } });
+
         const senhaHash = await bcrypt.hash(senha, SALT_ROUNDS);
+        const newUserId = generateUlid();
 
         const user = await prisma.user.create({
             data: {
+                id: newUserId,
                 email,
                 passwordHash: senhaHash,
-                name: nome
+                name: nome,
+                roleId: defaultRole?.id,
+                planId: defaultPlan?.id,
+                billingCycle: 'mensal'
             }
         });
 
@@ -55,15 +112,12 @@ export async function register(req: Request, res: Response) {
             { expiresIn: '7d' }
         );
 
+        const userPayload = await getUserPayload(user.id);
+
         res.status(201).json({
             message: 'Usuário criado com sucesso',
             token,
-            user: {
-                id: user.id,
-                email: user.email,
-                nome: user.name,
-                tokens: user.tokens
-            }
+            user: userPayload
         });
     } catch (error) {
         console.error(error);
@@ -109,15 +163,12 @@ export async function login(req: Request, res: Response) {
             { expiresIn: '7d' }
         );
 
+        const userPayload = await getUserPayload(user.id);
+
         res.json({
             message: 'Login realizado com sucesso',
             token,
-            user: {
-                id: user.id,
-                email: user.email,
-                nome: user.name,
-                tokens: user.tokens
-            }
+            user: userPayload
         });
     } catch (error) {
         console.error(error);
@@ -130,11 +181,9 @@ export async function login(req: Request, res: Response) {
 
 export async function verifyToken(req: AuthRequest, res: Response) {
     try {
-        const user = await prisma.user.findUnique({
-             where: { id: req.user.id }
-        });
+        const userPayload = await getUserPayload(req.user.id);
 
-        if (!user) {
+        if (!userPayload) {
             return res.status(404).json({
                 error: 'Usuário não encontrado',
                 message: 'Usuário não existe mais no sistema.'
@@ -142,12 +191,7 @@ export async function verifyToken(req: AuthRequest, res: Response) {
         }
 
         res.json({
-            user: {
-                id: user.id,
-                email: user.email,
-                nome: user.name,
-                tokens: user.tokens
-            }
+            user: userPayload
         });
     } catch (error) {
         console.error(error);

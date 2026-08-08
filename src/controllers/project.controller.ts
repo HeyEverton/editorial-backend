@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { generateUlid } from '../lib/ulid.js';
 import { AuthRequest } from '../middleware/auth.middleware.js';
 
 export async function createProject(req: AuthRequest, res: Response) {
@@ -15,6 +16,7 @@ export async function createProject(req: AuthRequest, res: Response) {
 
         const project = await prisma.project.create({
             data: {
+                id: generateUlid(),
                 name,
                 shortDescription: shortDescription || '',
                 content: content || {},
@@ -55,7 +57,7 @@ export async function getProjectById(req: AuthRequest, res: Response) {
 
         const project = await prisma.project.findFirst({
             where: {
-                id: Number(id),
+                id: String(id),
                 userId: req.user.id
             }
         });
@@ -84,7 +86,7 @@ export async function updateProject(req: AuthRequest, res: Response) {
 
         const existingProject = await prisma.project.findFirst({
             where: {
-                id: Number(id),
+                id: String(id),
                 userId: req.user.id
             }
         });
@@ -97,7 +99,7 @@ export async function updateProject(req: AuthRequest, res: Response) {
         }
 
         const updatedProject = await prisma.project.update({
-            where: { id: Number(id) },
+            where: { id: String(id) },
             data: {
                 name: name !== undefined ? name : existingProject.name,
                 shortDescription: shortDescription !== undefined ? shortDescription : existingProject.shortDescription,
@@ -121,7 +123,7 @@ export async function deleteProject(req: AuthRequest, res: Response) {
 
         const existingProject = await prisma.project.findFirst({
             where: {
-                id: Number(id),
+                id: String(id),
                 userId: req.user.id
             }
         });
@@ -134,7 +136,7 @@ export async function deleteProject(req: AuthRequest, res: Response) {
         }
 
         await prisma.project.delete({
-            where: { id: Number(id) }
+            where: { id: String(id) }
         });
 
         res.json({ message: 'Projeto excluído com sucesso.' });
