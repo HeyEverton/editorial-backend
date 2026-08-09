@@ -23,7 +23,9 @@ import {
     updatePermission,
     deletePermission,
     getAdminUsers,
-    updateUserRoleAndPlan
+    getAdminUserById,
+    updateUserRoleAndPlan,
+    getAnalytics
 } from './controllers/admin.controller.js';
 import { generateEditorialDocument } from './controllers/ai.controller.js';
 
@@ -72,7 +74,7 @@ app.get('/api/projects/:id', authenticateToken, checkPermission('read', 'project
 app.put('/api/projects/:id', authenticateToken, checkPermission('edit', 'projects'), updateProject);
 app.delete('/api/projects/:id', authenticateToken, checkPermission('delete', 'projects'), deleteProject);
 
-/* ── ADMIN: CARGOS E PERMISSÕES (RBAC) ── */
+/* ── ADMIN: CARGOS, PERMISSÕES, USUÁRIOS E ANALYTICS (RBAC) ── */
 app.get('/api/admin/roles', authenticateToken, checkPermission('list', 'roles'), getRoles);
 app.post('/api/admin/roles', authenticateToken, checkPermission('create', 'roles'), createRole);
 app.put('/api/admin/roles/:id', authenticateToken, checkPermission('edit', 'roles'), updateRole);
@@ -84,7 +86,11 @@ app.put('/api/admin/permissions/:id', authenticateToken, checkPermission('edit',
 app.delete('/api/admin/permissions/:id', authenticateToken, checkPermission('delete', 'permission'), deletePermission);
 
 app.get('/api/admin/users', authenticateToken, checkPermission('list', 'users'), getAdminUsers);
+app.get('/api/admin/users/:id', authenticateToken, checkPermission('read', 'users'), getAdminUserById);
+app.put('/api/admin/users/:id', authenticateToken, checkPermission('edit', 'users'), updateUserRoleAndPlan);
 app.put('/api/admin/users/:id/role-plan', authenticateToken, checkPermission('edit', 'users'), updateUserRoleAndPlan);
+
+app.get('/api/admin/analytics', authenticateToken, checkPermission('read', 'analytics'), getAnalytics);
 
 app.get('/api/protected', authenticateToken, (req: any, res) => {
     res.json({

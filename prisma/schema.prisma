@@ -12,6 +12,8 @@ model User {
   name                 String?
   email                String             @unique
   passwordHash         String
+  phone                String?
+  cpf                  String?
   tokens               Int                @default(40)
   generationsThisMonth Int                @default(0)
   lastGenerationReset  DateTime           @default(now())

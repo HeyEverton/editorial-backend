@@ -99,6 +99,7 @@ async function main() {
     { name: 'Permissões do Sistema', subject: 'permission', availableActions: ['read', 'list', 'create', 'edit', 'delete'] },
     { name: 'Projetos Editoriais', subject: 'projects', availableActions: ['read', 'list', 'create', 'edit', 'delete'] },
     { name: 'Geração de IA', subject: 'ai', availableActions: ['read', 'create'] },
+    { name: 'Analytics e Relatórios', subject: 'analytics', availableActions: ['read', 'list', 'export'] },
     { name: 'Empresa', subject: 'empresa', availableActions: ['read', 'create', 'delete', 'list', 'edit', 'block', 'manage'] },
     { name: 'Entregador', subject: 'entregador', availableActions: ['read', 'create', 'delete', 'list', 'edit', 'block', 'manage'] },
   ];
