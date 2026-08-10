@@ -28,6 +28,12 @@ import {
     getAnalytics
 } from './controllers/admin.controller.js';
 import { generateEditorialDocument } from './controllers/ai.controller.js';
+import {
+    subscribePlan,
+    getSubscriptionStatus,
+    cancelUserSubscription,
+    handleWebhook
+} from './controllers/payment.controller.js';
 
 dotenv.config();
 
@@ -63,7 +69,14 @@ app.post('/api/auth/register', register);
 app.post('/api/auth/login', login);
 app.get('/api/auth/verify', authenticateToken, verifyToken);
 
+/* ── PAGAMENTOS E ASSINATURAS (ASAAS) ── */
+app.post('/api/payments/subscribe', authenticateToken, subscribePlan);
+app.get('/api/payments/subscription', authenticateToken, getSubscriptionStatus);
+app.post('/api/payments/cancel-subscription', authenticateToken, cancelUserSubscription);
+app.post('/api/payments/webhook', handleWebhook);
+
 /* ── IA E GERAÇÃO DE CONTEÚDO ── */
+
 app.post('/api/ai/generate', authenticateToken, checkPermission('create', 'ai'), checkPlanLimits('generate_ai'), generateEditorialDocument);
 
 /* ── PROJETOS ── */
