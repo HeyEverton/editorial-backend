@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { prisma } from './lib/prisma.js';
-import { register, login, verifyToken } from './controllers/auth.controller.js';
+import { register, login, verifyToken, updateProfile, getUserAnalytics } from './controllers/auth.controller.js';
 import { authenticateToken } from './middleware/auth.middleware.js';
 import { checkPermission, checkPlanLimits } from './middleware/rbac.middleware.js';
 import {
@@ -29,8 +29,10 @@ import {
 } from './controllers/admin.controller.js';
 import { generateEditorialDocument } from './controllers/ai.controller.js';
 import {
+    createAsaasCustomer,
     subscribePlan,
     getSubscriptionStatus,
+    getPaymentStatus,
     cancelUserSubscription,
     handleWebhook
 } from './controllers/payment.controller.js';
@@ -68,11 +70,17 @@ app.get('/health', (req, res) => {
 app.post('/api/auth/register', register);
 app.post('/api/auth/login', login);
 app.get('/api/auth/verify', authenticateToken, verifyToken);
+app.put('/api/auth/profile', authenticateToken, updateProfile);
 
 /* ── PAGAMENTOS E ASSINATURAS (ASAAS) ── */
+app.post('/api/payments/customer', authenticateToken, createAsaasCustomer);
 app.post('/api/payments/subscribe', authenticateToken, subscribePlan);
 app.get('/api/payments/subscription', authenticateToken, getSubscriptionStatus);
+app.get('/api/payments/:id/status', authenticateToken, getPaymentStatus);
 app.post('/api/payments/cancel-subscription', authenticateToken, cancelUserSubscription);
+
+/* ── WEBHOOKS (ASAAS) ── */
+app.post('/api/webhooks/asaas', handleWebhook);
 app.post('/api/payments/webhook', handleWebhook);
 
 /* ── IA E GERAÇÃO DE CONTEÚDO ── */
@@ -104,6 +112,7 @@ app.put('/api/admin/users/:id', authenticateToken, checkPermission('edit', 'user
 app.put('/api/admin/users/:id/role-plan', authenticateToken, checkPermission('edit', 'users'), updateUserRoleAndPlan);
 
 app.get('/api/admin/analytics', authenticateToken, checkPermission('read', 'analytics'), getAnalytics);
+app.get('/api/user/analytics', authenticateToken, getUserAnalytics);
 
 app.get('/api/protected', authenticateToken, (req: any, res) => {
     res.json({

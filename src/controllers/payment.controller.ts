@@ -2,14 +2,75 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { generateUlid } from '../lib/ulid.js';
 import { asaasService } from '../services/asaas.service.js';
+import { validateCPF, validateEmail, sanitizeString } from '../lib/validators.js';
 
+/**
+ * Cria/Obtém um cliente no Asaas.
+ */
+export const createAsaasCustomer = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user?.id;
+        const { name, email, cpf, phone } = req.body;
+
+        const cleanEmail = sanitizeString(email);
+        const cleanName = sanitizeString(name);
+        const cleanCpf = cpf ? cpf.replace(/\D/g, '') : undefined;
+        const cleanPhone = phone ? phone.replace(/\D/g, '') : undefined;
+
+        if (cleanCpf && !validateCPF(cleanCpf)) {
+            return res.status(400).json({ error: 'CPF informado é inválido' });
+        }
+
+        if (cleanEmail && !validateEmail(cleanEmail)) {
+            return res.status(400).json({ error: 'E-mail informado é inválido' });
+        }
+
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            return res.status(404).json({ error: 'Usuário não encontrado' });
+        }
+
+        const customer = await asaasService.getOrCreateCustomer({
+            name: cleanName || user.name || user.email.split('@')[0],
+            email: cleanEmail || user.email,
+            cpfCnpj: cleanCpf || user.cpf || undefined,
+            phone: cleanPhone || user.phone || undefined,
+        });
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: {
+                asaasCustomerId: customer.id,
+                cpf: cleanCpf || user.cpf,
+                phone: cleanPhone || user.phone,
+            }
+        });
+
+        return res.json({
+            message: 'Cliente Asaas configurado com sucesso',
+            customer
+        });
+    } catch (error: any) {
+        console.error('[PaymentController] Erro ao criar cliente Asaas:', error);
+        return res.status(500).json({
+            error: 'Erro ao processar cadastro de cliente no gateway',
+            message: error.message
+        });
+    }
+};
+
+/**
+ * Processa a assinatura e gera cobrança Pix / Cartão / Boleto.
+ */
 export const subscribePlan = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user?.id;
         const {
             planId,
             billingCycle = 'mensal',
-            billingType,
+            billingType = 'PIX',
+            name,
+            email,
             cpf,
             phone,
             creditCard,
@@ -37,32 +98,44 @@ export const subscribePlan = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Plano não encontrado' });
         }
 
-        const userCpf = cpf || user.cpf;
-        const userPhone = phone || user.phone;
+        const userCpf = (cpf ? cpf.replace(/\D/g, '') : null) || user.cpf;
+        const userEmail = sanitizeString(email) || user.email;
+        const userName = sanitizeString(name) || user.name || userEmail.split('@')[0];
+        const userPhone = (phone ? phone.replace(/\D/g, '') : null) || user.phone;
 
-        if (billingType === 'BOLETO' && !userCpf) {
-            return res.status(400).json({ error: 'CPF/CNPJ é obrigatório para emissão de Boleto' });
+        // Validação de entrada no backend
+        if (billingType === 'PIX' || billingType === 'BOLETO') {
+            if (!userCpf) {
+                return res.status(400).json({ error: 'CPF é obrigatório para pagamentos via Pix ou Boleto' });
+            }
+            if (!validateCPF(userCpf)) {
+                return res.status(400).json({ error: 'CPF informado é inválido' });
+            }
+        }
+
+        if (!validateEmail(userEmail)) {
+            return res.status(400).json({ error: 'E-mail informado é inválido' });
         }
 
         // 1. Criar/Obter Cliente no Asaas
         const customer = await asaasService.getOrCreateCustomer({
-            name: user.name || user.email.split('@')[0],
-            email: user.email,
+            name: userName,
+            email: userEmail,
             cpfCnpj: userCpf || undefined,
             phone: userPhone || undefined
         });
 
-        // Atualiza o CPF/Telefone no banco local se foi informado agora
-        if (userCpf || userPhone || customer.id) {
-            await prisma.user.update({
-                where: { id: userId },
-                data: {
-                    cpf: userCpf || user.cpf,
-                    phone: userPhone || user.phone,
-                    asaasCustomerId: customer.id
-                }
-            });
-        }
+        // Atualizar dados do usuário no banco MySQL
+        await prisma.user.update({
+            where: { id: userId },
+            data: {
+                name: userName,
+                email: userEmail,
+                cpf: userCpf,
+                phone: userPhone,
+                asaasCustomerId: customer.id
+            }
+        });
 
         // 2. Definir valor e ciclo
         const isAnual = billingCycle.toLowerCase() === 'anual';
@@ -89,7 +162,18 @@ export const subscribePlan = async (req: Request, res: Response) => {
         }
 
         // 3. Criar Assinatura no Asaas
-        const description = `Assinatura Plano ${plan.name} (${isAnual ? 'Anual' : 'Mensal'}) - Editorial Architect`;
+        const description = `Assinatura Plano ${plan.name} (${isAnual ? 'Anual' : 'Mensal'}) - Arquitetura Editorial`;
+        
+        const finalHolderInfo = billingType === 'CREDIT_CARD' ? {
+            name: userName,
+            email: userEmail,
+            cpfCnpj: userCpf || '',
+            postalCode: '01001-000',
+            addressNumber: '100',
+            phone: userPhone || '11999999999',
+            ...creditCardHolderInfo
+        } : undefined;
+
         const subscription = await asaasService.createSubscription({
             customerId: customer.id,
             billingType,
@@ -97,7 +181,7 @@ export const subscribePlan = async (req: Request, res: Response) => {
             cycle,
             description,
             creditCard,
-            creditCardHolderInfo
+            creditCardHolderInfo: finalHolderInfo
         });
 
         // 4. Buscar cobrança gerada para a assinatura inicial
@@ -109,11 +193,11 @@ export const subscribePlan = async (req: Request, res: Response) => {
             try {
                 pixQrCode = await asaasService.getPaymentPixQrCode(initialPayment.id);
             } catch (err) {
-                console.error('Erro ao obter QR Code Pix:', err);
+                console.error('[PaymentController] Erro ao gerar QR Code Pix:', err);
             }
         }
 
-        // 5. Atualizar usuário e salvar histórico no BD
+        // 5. Atualizar usuário e registrar transação localmente
         await prisma.user.update({
             where: { id: userId },
             data: {
@@ -125,8 +209,14 @@ export const subscribePlan = async (req: Request, res: Response) => {
         });
 
         if (initialPayment) {
-            await prisma.paymentTransaction.create({
-                data: {
+            await prisma.paymentTransaction.upsert({
+                where: { asaasPaymentId: initialPayment.id },
+                update: {
+                    status: initialPayment.status,
+                    pixQrCodeUrl: pixQrCode?.encodedImage || null,
+                    pixCopyPaste: pixQrCode?.payload || null,
+                },
+                create: {
                     id: generateUlid(),
                     userId,
                     asaasPaymentId: initialPayment.id,
@@ -146,7 +236,7 @@ export const subscribePlan = async (req: Request, res: Response) => {
         }
 
         return res.json({
-            message: 'Assinatura criada com sucesso',
+            message: 'Assinatura e cobrança geradas com sucesso',
             subscriptionId: subscription.id,
             paymentId: initialPayment?.id,
             billingType,
@@ -162,12 +252,95 @@ export const subscribePlan = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error('[PaymentController] Erro no checkout:', error);
         return res.status(500).json({
-            error: 'Erro ao processar assinatura',
-            details: error.message
+            error: 'Erro ao processar cobrança/assinatura',
+            message: error.message
         });
     }
 };
 
+/**
+ * Polling Endpoint: Retorna o status de um pagamento e atualiza o banco local se necessário.
+ * Rota: GET /api/payments/:id/status
+ */
+export const getPaymentStatus = async (req: Request, res: Response) => {
+    try {
+        const paymentId = String(req.params.id);
+        const userId = (req as any).user?.id;
+
+        if (!paymentId) {
+            return res.status(400).json({ error: 'ID de pagamento não informado' });
+        }
+
+        // 1. Buscar transação local no MySQL
+        let transaction = await prisma.paymentTransaction.findUnique({
+            where: { asaasPaymentId: paymentId }
+        });
+
+        // 2. Se não encontrou ou o status local ainda é PENDING, consultar API do Asaas
+        let currentStatus = transaction?.status || 'PENDING';
+        let paymentDetails: any = null;
+
+        if (!transaction || currentStatus === 'PENDING') {
+            try {
+                paymentDetails = await asaasService.getPaymentDetails(paymentId);
+                currentStatus = paymentDetails.status;
+
+                // Se o status mudou para pago (RECEIVED ou CONFIRMED)
+                if (currentStatus === 'RECEIVED' || currentStatus === 'CONFIRMED') {
+                    const paymentDate = paymentDetails.paymentDate ? new Date(paymentDetails.paymentDate) : new Date();
+
+                    if (transaction) {
+                        await prisma.paymentTransaction.update({
+                            where: { id: transaction.id },
+                            data: {
+                                status: 'RECEIVED',
+                                netValue: paymentDetails.netValue || null,
+                                paymentDate
+                            }
+                        });
+                    }
+
+                    // Atualizar usuário se for do mesmo usuário
+                    const targetUserId = transaction?.userId || userId;
+                    if (targetUserId) {
+                        const user = await prisma.user.findUnique({ where: { id: targetUserId } });
+                        const isAnual = user?.billingCycle === 'anual';
+                        const nextDueDate = new Date(paymentDate);
+                        nextDueDate.setDate(nextDueDate.getDate() + (isAnual ? 365 : 30));
+
+                        await prisma.user.update({
+                            where: { id: targetUserId },
+                            data: {
+                                subscriptionStatus: 'ACTIVE',
+                                subscriptionDueDate: nextDueDate
+                            }
+                        });
+                    }
+                }
+            } catch (err: any) {
+                console.warn(`[PaymentController] Polling no Asaas falhou para ${paymentId}:`, err.message);
+            }
+        }
+
+        const isPaid = currentStatus === 'RECEIVED' || currentStatus === 'CONFIRMED' || currentStatus === 'RECEIVED_IN_CASH';
+
+        return res.json({
+            id: paymentId,
+            status: currentStatus,
+            isPaid,
+            paymentDate: paymentDetails?.paymentDate || transaction?.paymentDate || null,
+            pixQrCodeUrl: transaction?.pixQrCodeUrl || null,
+            pixCopyPaste: transaction?.pixCopyPaste || null,
+        });
+    } catch (error: any) {
+        console.error('[PaymentController] Erro no polling de pagamento:', error);
+        return res.status(500).json({ error: 'Erro ao verificar status do pagamento' });
+    }
+};
+
+/**
+ * Obtém o status completo da assinatura do usuário autenticado.
+ */
 export const getSubscriptionStatus = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user?.id;
@@ -200,6 +373,9 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * Cancela a assinatura do usuário.
+ */
 export const cancelUserSubscription = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user?.id;
@@ -221,15 +397,21 @@ export const cancelUserSubscription = async (req: Request, res: Response) => {
         return res.json({ message: 'Assinatura cancelada com sucesso' });
     } catch (error: any) {
         console.error('[PaymentController] Erro ao cancelar assinatura:', error);
-        return res.status(500).json({ error: 'Erro ao cancelar assinatura', details: error.message });
+        return res.status(500).json({ error: 'Erro ao cancelar assinatura', message: error.message });
     }
 };
 
+/**
+ * Webhook Asaas: Recebe notificações de eventos de pagamento (PAYMENT_RECEIVED, PAYMENT_CONFIRMED, etc.)
+ * Rotas: POST /api/webhooks/asaas ou POST /api/payments/webhook
+ */
 export const handleWebhook = async (req: Request, res: Response) => {
     try {
-        const webhookToken = req.headers['asaas-access-token'];
+        const rawToken = req.headers['asaas-access-token'];
+        const webhookToken = Array.isArray(rawToken) ? rawToken[0] : rawToken;
         const configuredToken = process.env.ASAAS_WEBHOOK_TOKEN;
 
+        // 1. Verificação de Token/Segurança
         if (configuredToken && webhookToken !== configuredToken) {
             console.warn('[Webhook Asaas] Token de acesso inválido no webhook');
             return res.status(401).json({ error: 'Token de webhook inválido' });
@@ -238,11 +420,11 @@ export const handleWebhook = async (req: Request, res: Response) => {
         const { event, payment } = req.body;
         console.log(`[Webhook Asaas] Evento recebido: ${event}`, payment?.id);
 
-        if (!payment) {
+        if (!payment || !payment.id) {
             return res.status(200).json({ received: true });
         }
 
-        // Buscar transação vinculada ou usuário vinculado ao cliente Asaas
+        // 2. Buscar transação e usuário vinculados
         let transaction = await prisma.paymentTransaction.findUnique({
             where: { asaasPaymentId: payment.id }
         });
@@ -254,14 +436,17 @@ export const handleWebhook = async (req: Request, res: Response) => {
             user = await prisma.user.findUnique({ where: { asaasCustomerId: payment.customer } });
         }
 
+        // 3. Idempotência: Se o evento é de confirmação e a transação já foi processada como RECEIVED/CONFIRMED, ignore o reprocessamento.
+        if ((event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') && transaction?.status === 'RECEIVED') {
+            console.log(`[Webhook Asaas] Pagamento ${payment.id} já processado anteriormente (Idempotente).`);
+            return res.status(200).json({ received: true, idempotent: true });
+        }
+
+        // 4. Processamento dos Eventos
         if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
-            const dueDate = payment.paymentDate
-                ? new Date(payment.paymentDate)
-                : new Date();
-            
-            // Adiciona 30 dias (ou 365 se for anual) à validade do plano
+            const paymentDate = payment.paymentDate ? new Date(payment.paymentDate) : new Date();
             const isAnual = user?.billingCycle === 'anual';
-            const nextDueDate = new Date(dueDate);
+            const nextDueDate = new Date(paymentDate);
             nextDueDate.setDate(nextDueDate.getDate() + (isAnual ? 365 : 30));
 
             if (user) {
@@ -280,7 +465,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
                     data: {
                         status: 'RECEIVED',
                         netValue: payment.netValue || null,
-                        paymentDate: payment.paymentDate ? new Date(payment.paymentDate) : new Date()
+                        paymentDate
                     }
                 });
             } else if (user) {
@@ -294,8 +479,8 @@ export const handleWebhook = async (req: Request, res: Response) => {
                         netValue: payment.netValue || null,
                         billingType: payment.billingType,
                         status: 'RECEIVED',
-                        description: payment.description || 'Cobrança confirmada pelo Asaas',
-                        paymentDate: payment.paymentDate ? new Date(payment.paymentDate) : new Date()
+                        description: payment.description || 'Cobrança confirmada via Asaas',
+                        paymentDate
                     }
                 });
             }
