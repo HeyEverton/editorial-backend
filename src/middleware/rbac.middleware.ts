@@ -91,14 +91,16 @@ export function checkPlanLimits(action: 'generate_ai' | 'create_project') {
       }
 
       if (action === 'create_project') {
-        const totalProjects = await prisma.project.count({
+        const activeProjectsCount = await prisma.project.count({
           where: { userId: user.id },
         });
+        const accumulatedCreated = (user as any).projectsCreatedTotal || 0;
+        const totalCountForLimit = Math.max(activeProjectsCount, accumulatedCreated);
 
-        if (plan.maxProjects !== -1 && totalProjects >= plan.maxProjects) {
+        if (plan.maxProjects !== -1 && totalCountForLimit >= plan.maxProjects) {
           return res.status(403).json({
             error: 'Limite de Projetos Atingido',
-            message: `Você atingiu o limite de ${plan.maxProjects} projetos do seu Plano ${plan.name}. Faça upgrade para o Plano Master Black para gerenciar projetos ilimitados.`,
+            message: `Você atingiu o limite de ${plan.maxProjects} projetos do seu Plano ${plan.name}. A exclusão de projetos antigos não restaura seu limite de criação. Faça upgrade de plano para criar novos projetos.`,
           });
         }
       }

@@ -376,3 +376,42 @@ export async function getUserAnalytics(req: AuthRequest, res: Response) {
         res.status(500).json({ error: 'Erro ao carregar analytics pessoal.' });
     }
 }
+
+export async function resetPassword(req: Request, res: Response) {
+    try {
+        const { email, novaSenha } = req.body;
+
+        if (!email || !novaSenha) {
+            return res.status(400).json({ error: 'E-mail e nova senha são obrigatórios.' });
+        }
+
+        if (novaSenha.length < 6) {
+            return res.status(400).json({ error: 'A senha deve conter no mínimo 6 caracteres.' });
+        }
+
+        const user = await prisma.user.findUnique({ where: { email: String(email).trim() } });
+        if (!user) {
+            return res.status(404).json({ error: 'Nenhuma conta encontrada com este e-mail.' });
+        }
+
+        const senhaHash = await bcrypt.hash(novaSenha, SALT_ROUNDS);
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { passwordHash: senhaHash }
+        });
+
+        const token = jwt.sign(
+            { id: user.id, email: user.email },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        return res.json({
+            message: 'Senha atualizada com sucesso!',
+            token
+        });
+    } catch (error: any) {
+        console.error('[resetPassword Error]', error);
+        return res.status(500).json({ error: 'Erro ao redefinir a senha.' });
+    }
+}

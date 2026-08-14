@@ -2,8 +2,8 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { prisma } from './lib/prisma.js';
-import { register, login, verifyToken, updateProfile, getUserAnalytics } from './controllers/auth.controller.js';
-import { authenticateToken } from './middleware/auth.middleware.js';
+import { register, login, verifyToken, updateProfile, getUserAnalytics, resetPassword } from './controllers/auth.controller.js';
+import { authenticateToken, optionalAuthenticateToken } from './middleware/auth.middleware.js';
 import { checkPermission, checkPlanLimits } from './middleware/rbac.middleware.js';
 import {
     createProject,
@@ -69,14 +69,15 @@ app.get('/health', (req, res) => {
 /* ── AUTENTICAÇÃO ── */
 app.post('/api/auth/register', register);
 app.post('/api/auth/login', login);
+app.post('/api/auth/reset-password', resetPassword);
 app.get('/api/auth/verify', authenticateToken, verifyToken);
 app.put('/api/auth/profile', authenticateToken, updateProfile);
 
 /* ── PAGAMENTOS E ASSINATURAS (ASAAS) ── */
 app.post('/api/payments/customer', authenticateToken, createAsaasCustomer);
-app.post('/api/payments/subscribe', authenticateToken, subscribePlan);
+app.post('/api/payments/subscribe', optionalAuthenticateToken, subscribePlan);
 app.get('/api/payments/subscription', authenticateToken, getSubscriptionStatus);
-app.get('/api/payments/:id/status', authenticateToken, getPaymentStatus);
+app.get('/api/payments/:id/status', optionalAuthenticateToken, getPaymentStatus);
 app.post('/api/payments/cancel-subscription', authenticateToken, cancelUserSubscription);
 
 /* ── WEBHOOKS (ASAAS) ── */

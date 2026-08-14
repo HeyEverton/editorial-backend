@@ -24,6 +24,14 @@ export async function createProject(req: AuthRequest, res: Response) {
             }
         });
 
+        // Incrementar o total acumulado de projetos criados pelo usuário (sem estorno em deleções)
+        await prisma.user.update({
+            where: { id: req.user.id },
+            data: {
+                projectsCreatedTotal: { increment: 1 }
+            }
+        }).catch(err => console.error('[Project Count Increment Error]', err));
+
         res.status(201).json(project);
     } catch (error) {
         console.error(error);

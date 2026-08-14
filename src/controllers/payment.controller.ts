@@ -1,8 +1,12 @@
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { generateUlid } from '../lib/ulid.js';
 import { asaasService } from '../services/asaas.service.js';
 import { validateCPF, validateEmail, sanitizeString } from '../lib/validators.js';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
 /**
  * Cria/Obtém um cliente no Asaas.
@@ -64,7 +68,7 @@ export const createAsaasCustomer = async (req: Request, res: Response) => {
  */
 export const subscribePlan = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user?.id;
+        let userId = (req as any).user?.id;
         const {
             planId,
             billingCycle = 'mensal',
@@ -81,58 +85,99 @@ export const subscribePlan = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Parâmetros obrigatórios incompletos (planId, billingType)' });
         }
 
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            include: { plan: true }
-        });
+        const userEmail = sanitizeString(email);
+        const userName = sanitizeString(name) || userEmail.split('@')[0];
+        const userCpf = cpf ? cpf.replace(/\D/g, '') : null;
+        const userPhone = phone ? phone.replace(/\D/g, '') : null;
 
-        if (!user) {
-            return res.status(404).json({ error: 'Usuário não encontrado' });
+        let user = null;
+        if (userId) {
+            user = await prisma.user.findUnique({
+                where: { id: userId },
+                include: { plan: true }
+            });
         }
 
-        const plan = await prisma.plan.findUnique({
+        if (!user && userEmail) {
+            user = await prisma.user.findUnique({
+                where: { email: userEmail },
+                include: { plan: true }
+            });
+        }
+
+        if (!user) {
+            if (!userEmail) {
+                return res.status(400).json({ error: 'E-mail é obrigatório para registrar a assinatura' });
+            }
+            if (!validateEmail(userEmail)) {
+                return res.status(400).json({ error: 'E-mail informado é inválido' });
+            }
+
+            const dummyHash = await bcrypt.hash(generateUlid(), 10);
+            user = await prisma.user.create({
+                data: {
+                    id: generateUlid(),
+                    name: userName,
+                    email: userEmail,
+                    passwordHash: dummyHash,
+                    cpf: userCpf,
+                    phone: userPhone
+                },
+                include: { plan: true }
+            });
+        }
+
+        userId = user.id;
+
+        let plan = await prisma.plan.findUnique({
             where: { id: planId }
         });
+
+        if (!plan) {
+            plan = await prisma.plan.findUnique({
+                where: { slug: planId }
+            });
+        }
 
         if (!plan) {
             return res.status(404).json({ error: 'Plano não encontrado' });
         }
 
-        const userCpf = (cpf ? cpf.replace(/\D/g, '') : null) || user.cpf;
-        const userEmail = sanitizeString(email) || user.email;
-        const userName = sanitizeString(name) || user.name || userEmail.split('@')[0];
-        const userPhone = (phone ? phone.replace(/\D/g, '') : null) || user.phone;
+        const finalCpf = userCpf || user.cpf;
+        const finalEmail = userEmail || user.email;
+        const finalName = userName || user.name || finalEmail.split('@')[0];
+        const finalPhone = userPhone || user.phone;
 
         // Validação de entrada no backend
         if (billingType === 'PIX' || billingType === 'BOLETO') {
-            if (!userCpf) {
+            if (!finalCpf) {
                 return res.status(400).json({ error: 'CPF é obrigatório para pagamentos via Pix ou Boleto' });
             }
-            if (!validateCPF(userCpf)) {
+            if (!validateCPF(finalCpf)) {
                 return res.status(400).json({ error: 'CPF informado é inválido' });
             }
         }
 
-        if (!validateEmail(userEmail)) {
+        if (!validateEmail(finalEmail)) {
             return res.status(400).json({ error: 'E-mail informado é inválido' });
         }
 
         // 1. Criar/Obter Cliente no Asaas
         const customer = await asaasService.getOrCreateCustomer({
-            name: userName,
-            email: userEmail,
-            cpfCnpj: userCpf || undefined,
-            phone: userPhone || undefined
+            name: finalName,
+            email: finalEmail,
+            cpfCnpj: finalCpf || undefined,
+            phone: finalPhone || undefined
         });
 
         // Atualizar dados do usuário no banco MySQL
         await prisma.user.update({
             where: { id: userId },
             data: {
-                name: userName,
-                email: userEmail,
-                cpf: userCpf,
-                phone: userPhone,
+                name: finalName,
+                email: finalEmail,
+                cpf: finalCpf,
+                phone: finalPhone,
                 asaasCustomerId: customer.id
             }
         });
@@ -235,12 +280,24 @@ export const subscribePlan = async (req: Request, res: Response) => {
             });
         }
 
+        const userToken = jwt.sign(
+            { id: user.id, email: user.email },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
         return res.json({
             message: 'Assinatura e cobrança geradas com sucesso',
             subscriptionId: subscription.id,
             paymentId: initialPayment?.id,
             billingType,
             status: initialPayment?.status || 'PENDING',
+            token: userToken,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name
+            },
             pixQrCode: pixQrCode ? {
                 encodedImage: pixQrCode.encodedImage,
                 payload: pixQrCode.payload,

@@ -16,6 +16,7 @@ model User {
   cpf                  String?
   tokens               Int                  @default(40)
   generationsThisMonth Int                  @default(0)
+  projectsCreatedTotal Int                  @default(0)
   lastGenerationReset  DateTime             @default(now())
   billingCycle         String?              @default("mensal")
   roleId               String?

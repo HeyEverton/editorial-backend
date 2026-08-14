@@ -46,4 +46,27 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
     }
 }
 
+/**
+ * Middleware opcional: se houver token válido, anexa req.user.
+ * Caso contrário, prossegue sem bloquear a requisição (útil para checkout de visitantes).
+ */
+export function optionalAuthenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return next();
+    }
+
+    try {
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        if (decoded && typeof decoded.id === 'string') {
+            req.user = decoded;
+        }
+    } catch (error: any) {
+        // Silenciosamente ignora falha de token para requisição opcional
+    }
+    next();
+}
+
 export default authenticateToken;
