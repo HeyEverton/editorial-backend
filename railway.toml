@@ -2,4 +2,5 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "npx prisma migrate deploy && npm start"
+startCommand = "npx prisma db push && npm run seed && npm start"
+
