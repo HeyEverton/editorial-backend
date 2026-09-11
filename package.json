@@ -10,9 +10,6 @@
         "dev": "tsx watch src/server.ts",
         "seed": "prisma db seed"
     },
-    "prisma": {
-        "seed": "tsx prisma/seed.ts"
-    },
     "engines": {
         "node": ">=18.0.0",
         "npm": ">=9.0.0"
