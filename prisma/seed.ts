@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { generateUlid } from '../src/lib/ulid.js';
 
 const prisma = new PrismaClient();
@@ -211,7 +212,8 @@ async function main() {
   });
 
   if (!userExistente) {
-    const senhaHash = await bcrypt.hash('senha123', 10);
+    const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+    const senhaHash = await bcrypt.hash(adminPassword, 10);
     await prisma.user.create({
       data: {
         id: generateUlid(),
@@ -224,7 +226,7 @@ async function main() {
         tokens: 100,
       },
     });
-    console.log('[SEED] Usuário Admin padrão criado (editor@elite.com / senha123).');
+    console.log(`[SEED] Usuário Admin padrão configurado (${emailPadrao}). Senha inicial de setup: ${adminPassword}`);
   } else {
     // Garantir roleId e planId no usuário existente
     await prisma.user.update({

@@ -5,8 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { generateUlid } from '../lib/ulid.js';
 import { asaasService } from '../services/asaas.service.js';
 import { validateCPF, validateEmail, sanitizeString } from '../lib/validators.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+import { JWT_SECRET } from '../middleware/auth.middleware.js';
 
 /**
  * Cria/Obtém um cliente no Asaas.
@@ -96,13 +95,22 @@ export const subscribePlan = async (req: Request, res: Response) => {
                 where: { id: userId },
                 include: { plan: true }
             });
-        }
-
-        if (!user && userEmail) {
-            user = await prisma.user.findUnique({
-                where: { email: userEmail },
-                include: { plan: true }
-            });
+            if (!user) {
+                return res.status(401).json({ error: 'Usuário autenticado não encontrado.' });
+            }
+        } else {
+            // Requisição anônima: se o e-mail já estiver cadastrado, bloqueia para impedir Account Takeover
+            if (userEmail) {
+                const existingUser = await prisma.user.findUnique({
+                    where: { email: userEmail }
+                });
+                if (existingUser) {
+                    return res.status(409).json({
+                        error: 'Conta existente',
+                        message: 'Este e-mail já possui cadastro. Por favor, faça login antes de alterar ou renovar sua assinatura.'
+                    });
+                }
+            }
         }
 
         if (!user) {
@@ -279,12 +287,14 @@ export const subscribePlan = async (req: Request, res: Response) => {
                 }
             });
         }
-
-        const userToken = jwt.sign(
-            { id: user.id, email: user.email },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
+        let userToken: string | undefined = undefined;
+        if (!userId) {
+            userToken = jwt.sign(
+                { id: user.id, email: user.email },
+                JWT_SECRET,
+                { expiresIn: '7d' }
+            );
+        }
 
         return res.json({
             message: 'Assinatura e cobrança geradas com sucesso',
@@ -322,16 +332,33 @@ export const subscribePlan = async (req: Request, res: Response) => {
 export const getPaymentStatus = async (req: Request, res: Response) => {
     try {
         const paymentId = String(req.params.id);
-        const userId = (req as any).user?.id;
+        const reqUser = (req as any).user;
+        const userId = reqUser?.id;
 
         if (!paymentId) {
             return res.status(400).json({ error: 'ID de pagamento não informado' });
+        }
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Não autenticado', message: 'Acesso negado. Por favor, faça login.' });
         }
 
         // 1. Buscar transação local no MySQL
         let transaction = await prisma.paymentTransaction.findUnique({
             where: { asaasPaymentId: paymentId }
         });
+
+        // Validação estrita de IDOR: a transação DEVE pertencer ao usuário autenticado ou a um administrador
+        if (transaction) {
+            const isOwner = transaction.userId === userId;
+            const isAdmin = reqUser?.role === 'Admin System' || reqUser?.role?.name === 'Admin System';
+            if (!isOwner && !isAdmin) {
+                return res.status(403).json({
+                    error: 'Acesso negado',
+                    message: 'Você não possui permissão para consultar os dados desta transação.'
+                });
+            }
+        }
 
         // 2. Se não encontrou ou o status local ainda é PENDING, consultar API do Asaas
         let currentStatus = transaction?.status || 'PENDING';
@@ -468,10 +495,10 @@ export const handleWebhook = async (req: Request, res: Response) => {
         const webhookToken = Array.isArray(rawToken) ? rawToken[0] : rawToken;
         const configuredToken = process.env.ASAAS_WEBHOOK_TOKEN;
 
-        // 1. Verificação de Token/Segurança
-        if (configuredToken && webhookToken !== configuredToken) {
-            console.warn('[Webhook Asaas] Token de acesso inválido no webhook');
-            return res.status(401).json({ error: 'Token de webhook inválido' });
+        // 1. Verificação de Token/Segurança (Fail-Secure)
+        if (!configuredToken || !webhookToken || webhookToken !== configuredToken) {
+            console.warn('[Webhook Asaas] Token de acesso ausente, inválido ou não configurado no servidor');
+            return res.status(401).json({ error: 'Token de webhook inválido ou não configurado' });
         }
 
         const { event, payment } = req.body;

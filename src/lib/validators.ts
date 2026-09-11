@@ -39,9 +39,25 @@ export function validateEmail(emailRaw?: string): boolean {
 }
 
 /**
- * Sanitiza strings para evitar espaços extras ou injeções indesejadas.
+ * Sanitiza strings removendo espaços extras e escapando caracteres perigosos para HTML/Scripts.
  */
 export function sanitizeString(input?: string): string {
-    if (!input) return '';
+    if (!input || typeof input !== 'string') return '';
+    return input
+        .trim()
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;')
+        .replace(/\//g, '&#x2F;');
+}
+
+/**
+ * Limpa espaços extras de campos textuais puros.
+ */
+export function cleanPlainText(input?: string): string {
+    if (!input || typeof input !== 'string') return '';
     return input.trim();
 }
+

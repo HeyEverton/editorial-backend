@@ -3,6 +3,26 @@ import { prisma } from '../lib/prisma.js';
 import { generateUlid } from '../lib/ulid.js';
 import { AuthRequest } from '../middleware/auth.middleware.js';
 
+async function enforceWhiteLabelLimit(userId: string, content: any): Promise<any> {
+    if (!content || typeof content !== 'object') return content || {};
+    
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { plan: true }
+    });
+
+    const hasWhiteLabel = user?.plan?.hasWhiteLabel || false;
+
+    // Se o plano não possuir White-Label, bloqueia personalização da marca Studio OS
+    if (!hasWhiteLabel && content.settings) {
+        content.settings.companyName = 'STUDIO OS';
+        content.settings.designerSignature = '';
+        content.settings.agencySignature = '';
+    }
+
+    return content;
+}
+
 export async function createProject(req: AuthRequest, res: Response) {
     try {
         const { name, shortDescription, content } = req.body;
@@ -14,12 +34,14 @@ export async function createProject(req: AuthRequest, res: Response) {
             });
         }
 
+        const sanitizedContent = await enforceWhiteLabelLimit(req.user.id, content);
+
         const project = await prisma.project.create({
             data: {
                 id: generateUlid(),
                 name,
                 shortDescription: shortDescription || '',
-                content: content || {},
+                content: sanitizedContent,
                 userId: req.user.id
             }
         });
@@ -106,12 +128,17 @@ export async function updateProject(req: AuthRequest, res: Response) {
             });
         }
 
+        let finalContent = content !== undefined ? content : existingProject.content;
+        if (content !== undefined) {
+            finalContent = await enforceWhiteLabelLimit(req.user.id, content);
+        }
+
         const updatedProject = await prisma.project.update({
             where: { id: String(id) },
             data: {
                 name: name !== undefined ? name : existingProject.name,
                 shortDescription: shortDescription !== undefined ? shortDescription : existingProject.shortDescription,
-                content: content !== undefined ? content : existingProject.content
+                content: finalContent
             }
         });
 

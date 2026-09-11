@@ -4,7 +4,11 @@ import { Request, Response, NextFunction } from 'express';
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+const rawSecret = process.env.JWT_SECRET;
+if (!rawSecret || rawSecret === 'fallback_secret' || rawSecret.length < 32) {
+    throw new Error('[FATAL] JWT_SECRET não configurado, inseguro ou menor que 32 caracteres.');
+}
+export const JWT_SECRET: string = rawSecret;
 
 export interface AuthRequest extends Request {
   user?: any;

@@ -4,11 +4,10 @@ import { prisma } from '../lib/prisma.js';
 import { generateUlid } from '../lib/ulid.js';
 import dotenv from 'dotenv';
 import { Request, Response } from 'express';
-import { AuthRequest } from '../middleware/auth.middleware.js';
+import { AuthRequest, JWT_SECRET } from '../middleware/auth.middleware.js';
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 const SALT_ROUNDS = 10;
 
 async function getUserPayload(userId: string) {
@@ -377,21 +376,96 @@ export async function getUserAnalytics(req: AuthRequest, res: Response) {
     }
 }
 
+/**
+ * Emite token temporário seguro de redefinição de senha (válido por 15 minutos).
+ */
+export async function forgotPassword(req: Request, res: Response) {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            return res.status(400).json({ error: 'O e-mail é obrigatório.' });
+        }
+
+        const cleanEmail = String(email).trim().toLowerCase();
+        const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+
+        const genericMessage = 'Se o e-mail estiver cadastrado, o token de redefinição foi gerado.';
+
+        if (!user) {
+            return res.json({ message: genericMessage });
+        }
+
+        const resetToken = jwt.sign(
+            { id: user.id, email: user.email, purpose: 'password_reset' },
+            JWT_SECRET,
+            { expiresIn: '15m' }
+        );
+
+        console.log(`[AUTH] Token de redefinição emitido para ${user.email}: ${resetToken}`);
+
+        return res.json({
+            message: genericMessage,
+            ...(process.env.NODE_ENV !== 'production' ? { resetToken } : {})
+        });
+    } catch (error: any) {
+        console.error('[forgotPassword Error]', error);
+        return res.status(500).json({ error: 'Erro ao processar pedido de redefinição.' });
+    }
+}
+
+/**
+ * Redefine a senha do usuário com validação estrita de segurança:
+ * Exige ou token de redefinição válido (purpose: 'password_reset') ou sessão autenticada.
+ */
 export async function resetPassword(req: Request, res: Response) {
     try {
-        const { email, novaSenha } = req.body;
+        const { token: resetToken, novaSenha } = req.body;
 
-        if (!email || !novaSenha) {
-            return res.status(400).json({ error: 'E-mail e nova senha são obrigatórios.' });
+        if (!novaSenha || typeof novaSenha !== 'string' || novaSenha.length < 6) {
+            return res.status(400).json({ error: 'A nova senha deve conter no mínimo 6 caracteres.' });
         }
 
-        if (novaSenha.length < 6) {
-            return res.status(400).json({ error: 'A senha deve conter no mínimo 6 caracteres.' });
+        let targetUserId: string | null = null;
+
+        // 1. Caso 1: Chamada autenticada com sessão ativa (ex: definição de senha após checkout)
+        const authHeader = req.headers['authorization'];
+        const sessionToken = authHeader && authHeader.split(' ')[1];
+        if (sessionToken) {
+            try {
+                const sessionDecoded: any = jwt.verify(sessionToken, JWT_SECRET);
+                if (sessionDecoded && sessionDecoded.id) {
+                    targetUserId = sessionDecoded.id;
+                }
+            } catch (err) {
+                // Token de sessão inválido, prossegue para checar resetToken
+            }
         }
 
-        const user = await prisma.user.findUnique({ where: { email: String(email).trim() } });
+        // 2. Caso 2: Chamada via token de redefinição temporário (forgot-password)
+        if (!targetUserId && resetToken) {
+            try {
+                const resetDecoded: any = jwt.verify(resetToken, JWT_SECRET);
+                if (resetDecoded && resetDecoded.purpose === 'password_reset' && resetDecoded.id) {
+                    targetUserId = resetDecoded.id;
+                } else {
+                    return res.status(400).json({ error: 'Token de redefinição inválido ou com finalidade incorreta.' });
+                }
+            } catch (err: any) {
+                return res.status(400).json({ error: 'Token de redefinição expirado ou inválido.' });
+            }
+        }
+
+        // 3. Se nenhuma credencial válida (sessão ou token temporário) foi fornecida: REJEITA
+        if (!targetUserId) {
+            return res.status(401).json({
+                error: 'Não autorizado',
+                message: 'É necessário fornecer um token de redefinição válido ou estar autenticado para redefinir a senha.'
+            });
+        }
+
+        const user = await prisma.user.findUnique({ where: { id: targetUserId } });
         if (!user) {
-            return res.status(404).json({ error: 'Nenhuma conta encontrada com este e-mail.' });
+            return res.status(404).json({ error: 'Usuário não encontrado.' });
         }
 
         const senhaHash = await bcrypt.hash(novaSenha, SALT_ROUNDS);
@@ -400,7 +474,8 @@ export async function resetPassword(req: Request, res: Response) {
             data: { passwordHash: senhaHash }
         });
 
-        const token = jwt.sign(
+        // Emite token de sessão renovado
+        const newToken = jwt.sign(
             { id: user.id, email: user.email },
             JWT_SECRET,
             { expiresIn: '7d' }
@@ -408,10 +483,11 @@ export async function resetPassword(req: Request, res: Response) {
 
         return res.json({
             message: 'Senha atualizada com sucesso!',
-            token
+            token: newToken
         });
     } catch (error: any) {
         console.error('[resetPassword Error]', error);
         return res.status(500).json({ error: 'Erro ao redefinir a senha.' });
     }
 }
+

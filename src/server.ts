@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { prisma } from './lib/prisma.js';
-import { register, login, verifyToken, updateProfile, getUserAnalytics, resetPassword } from './controllers/auth.controller.js';
+import { register, login, verifyToken, updateProfile, getUserAnalytics, resetPassword, forgotPassword } from './controllers/auth.controller.js';
 import { authenticateToken, optionalAuthenticateToken } from './middleware/auth.middleware.js';
 import { checkPermission, checkPlanLimits } from './middleware/rbac.middleware.js';
 import {
@@ -39,6 +39,16 @@ import {
 
 dotenv.config();
 
+// Validação de segurança no startup (Fail-Fast)
+function validateEnvironment() {
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret || jwtSecret === 'fallback_secret' || jwtSecret.length < 32) {
+        console.error('[FATAL] JWT_SECRET não configurado, inseguro ou menor que 32 caracteres. Abortando inicialização.');
+        process.exit(1);
+    }
+}
+validateEnvironment();
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -69,6 +79,7 @@ app.get('/health', (req, res) => {
 /* ── AUTENTICAÇÃO ── */
 app.post('/api/auth/register', register);
 app.post('/api/auth/login', login);
+app.post('/api/auth/forgot-password', forgotPassword);
 app.post('/api/auth/reset-password', resetPassword);
 app.get('/api/auth/verify', authenticateToken, verifyToken);
 app.put('/api/auth/profile', authenticateToken, updateProfile);
@@ -77,7 +88,7 @@ app.put('/api/auth/profile', authenticateToken, updateProfile);
 app.post('/api/payments/customer', authenticateToken, createAsaasCustomer);
 app.post('/api/payments/subscribe', optionalAuthenticateToken, subscribePlan);
 app.get('/api/payments/subscription', authenticateToken, getSubscriptionStatus);
-app.get('/api/payments/:id/status', optionalAuthenticateToken, getPaymentStatus);
+app.get('/api/payments/:id/status', authenticateToken, getPaymentStatus);
 app.post('/api/payments/cancel-subscription', authenticateToken, cancelUserSubscription);
 
 /* ── WEBHOOKS (ASAAS) ── */
