@@ -215,7 +215,7 @@ export const subscribePlan = async (req: Request, res: Response) => {
         }
 
         // 3. Criar Assinatura no Asaas
-        const description = `Assinatura Plano ${plan.name} (${isAnual ? 'Anual' : 'Mensal'}) - Arquitetura Editorial`;
+        const description = `Assinatura Plano ${plan.name} (${isAnual ? 'Anual' : 'Mensal'}) - Runa`;
         
         const finalHolderInfo = billingType === 'CREDIT_CARD' ? {
             name: userName,

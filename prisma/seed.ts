@@ -71,7 +71,7 @@ async function main() {
       asaasPlanId: 'plan_asaas_master_mock',
       items: [
         'Tudo do Plano Elite',
-        'Modo White-Label (sem marca Studio OS)',
+        'Modo White-Label (sem marca Runa)',
         'Suporte VIP via WhatsApp',
         'Presets Exclusivos e Customizados',
         'Mentoria Trimestral em Grupo',

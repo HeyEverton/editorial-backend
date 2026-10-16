@@ -13,9 +13,9 @@ async function enforceWhiteLabelLimit(userId: string, content: any): Promise<any
 
     const hasWhiteLabel = user?.plan?.hasWhiteLabel || false;
 
-    // Se o plano não possuir White-Label, bloqueia personalização da marca Studio OS
+    // Se o plano não possuir White-Label, bloqueia personalização da marca Runa
     if (!hasWhiteLabel && content.settings) {
-        content.settings.companyName = 'STUDIO OS';
+        content.settings.companyName = 'RUNA';
         content.settings.designerSignature = '';
         content.settings.agencySignature = '';
     }
